@@ -1,9 +1,17 @@
 import * as WebSocket from "ws";
 import {IncomingMessage} from "http";
 import {HiveClient} from "./hive-client";
-import {InboundMessages, NewSessionMessage, Payload} from "./messages";
+import {
+    ErrorMessage,
+    InboundMessages,
+    OutboundMessage,
+    Payload,
+    SessionCreatedMessage,
+    SessionJoinedMessage
+} from "./messages";
 import {GameSession} from "./game-session";
 import {GameConfig} from "./game-config";
+import assert from "assert";
 import Timeout = NodeJS.Timeout;
 
 class HiveServer {
@@ -11,17 +19,15 @@ class HiveServer {
     readonly wss: WebSocket.Server;
 
     /**
-     * Map from client id to client
+     * A map from client id to client.
      */
     clients: { [key: string]: HiveClient };
-
     /**
-     * Map from session id to game sessions
+     * A map from session id to game sessions.
      */
     sessions: { [key: string]: GameSession };
-
     /**
-     * An interval that pings clients to eliminate dead connections
+     * An interval that pings clients to eliminate dead connections.
      */
     readonly pingInterval: Timeout;
 
@@ -33,6 +39,14 @@ class HiveServer {
         this.wss.on('connection', this.onConnection.bind(this));
         this.pingInterval = setInterval(this.ping.bind(this), 30000);
         console.info('server up');
+    }
+
+    get clientCount(): number {
+        return Object.keys(this.clients).length;
+    }
+
+    get sessionCount(): number {
+        return Object.keys(this.sessions).length;
     }
 
     /**
@@ -74,7 +88,7 @@ class HiveServer {
 
         // Add client to list of clients
         this.clients[client.id] = client;
-        console.info(`client ${client.id} connected (total ${Object.keys(this.clients).length})`);
+        console.info(`client ${client.id} connected (total ${this.clientCount})`);
     }
 
     /**
@@ -86,68 +100,139 @@ class HiveServer {
             data = JSON.parse(message.data as string) as Payload;
         } catch (e) {
             console.error('error parsing json obj\n\t' + message.data);
-            // Todo: notify client of JSON parse error.
+            client.send(ErrorMessage.invalidRequest);
             return;
         }
         const context = data['context'];
         switch (context) {
             case InboundMessages.newSession:
-                this.createNewSession(client, data);
+                let config = new GameConfig(data['playAsWhite'], data['includesMosquito'], data['includesLadybug']);
+                this.createNewSession(client, config);
                 break;
             case InboundMessages.destroySession:
                 this.destroySession(client);
                 break;
+            case InboundMessages.joinSession:
+                this.joinSession(client, data['sessionId']);
+                break;
+            case InboundMessages.leaveSession:
+                this.leaveSession(client);
+                break;
             default:
+                client.send(ErrorMessage.invalidRequest);
                 console.error('unknown message context from client: ' + context);
                 break;
         }
-
     }
 
     /**
-     * Destroys the session that the client is in
+     * Removes {client} from its session and notify the peer.
+     * Does not remove the session itself.
+     * Initiator should call destroySession if it wants to leave the session.
+     */
+    leaveSession(client: HiveClient) {
+        let session = client.session;
+        if (session == null) {
+            return;
+        }
+        assert(client === session.peer);
+        delete session.peer;
+        delete client.session;
+        session.initiator.send(OutboundMessage.peerDisconnected);
+        console.info(`client ${client.id} has left session ${session.id}`);
+    }
+
+    /**
+     * Joins the client into a session.
+     */
+    joinSession(client: HiveClient, sessionId: string) {
+        if (client.session != null && client.session.id != sessionId) {
+            client.send(new ErrorMessage(
+                'sessionExists',
+                'Cannot Join Session',
+                `Already in session ${client.session.id}, leave first`
+            ));
+            return;
+        }
+        let session = this.sessions[sessionId];
+        client.session = session;
+        if (session == null) {
+            // If session does not exist, send an error.
+            client.send(ErrorMessage.sessionNotFound);
+            return;
+        }
+        if (session.peer == null) {
+            console.info(`client ${client.id} joined session ${session.id} as peer`);
+            session.peer = client;
+        } else {
+            console.info(`client ${client.id} joined session ${session.id} as initiator`);
+            // Handles the situation where the initiator loses the connection and wants to reconnect.
+            session.initiator = client;
+        }
+        let msg = new SessionJoinedMessage(session);
+        console.log(msg.payload);
+        session.peer?.send(msg);
+        session.initiator.send(msg);
+    }
+
+    /**
+     * Destroys the session that the client is in.
+     * This happens when
+     *  - the client has explicitly left
+     *  - both peers of the session have disconnected.
      */
     destroySession(client: HiveClient) {
         const session = client.session;
         if (session == null) {
             return;
         }
-        // Todo: tell peer that the session has been destroyed
+        if (session.peer != null && session.peer.isAlive) {
+            // Notify the peer that the session have been destroyed if it is still connected.
+            session.peer.send(OutboundMessage.sessionDestroyed);
+        }
         delete client.session;
         delete session.peer?.session;
         delete this.sessions[session.id];
-        console.info('destroyed session ' + session.id + `(total ${Object.keys(this.sessions).length})`);
+        console.info('destroyed session ' + session.id + `(total ${this.sessionCount})`);
     }
 
     /**
      * Creates a new game session with a client as initiator.
      */
-    createNewSession(initiator: HiveClient, data: Payload) {
-        let gameConfig = new GameConfig(data['playAsWhite'], data['includesMosquito'], data['includesLadybug']);
+    createNewSession(initiator: HiveClient, gameConfig: GameConfig) {
+        console.log(gameConfig);
         let session = new GameSession(initiator, this.genSessionId(), gameConfig);
         this.sessions[session.id] = session;
         initiator.session = session;
-        initiator.send(new NewSessionMessage(session.id));
-        console.info(`created new session ${session.id} (total ${Object.keys(this.sessions).length})`)
+        initiator.send(new SessionCreatedMessage(session.id));
+        console.info(`created new session ${session.id} (total ${this.sessionCount})`)
     }
 
 
     /**
-     * Called when this client disconnects.
+     * Called when a client disconnects.
      */
     onClose(client: HiveClient, evt: WebSocket.CloseEvent) {
         delete this.clients[client.id];
         client.isAlive = false;
         if (client.session != null) {
-            // If both peers of the session left, destroy the session.
             const session = client.session;
+
+            // If one of the peers in the session disconnects unexpectedly, notify the other.
+            if (client == session.initiator) {
+                session.peer?.send(OutboundMessage.peerDisconnected);
+            } else if (client == session.peer) {
+                session.initiator.send(OutboundMessage.peerDisconnected);
+            }
+
+            // If both peers of the session left, destroy the session.
             if (session.initiator == null || !session.initiator.isAlive) {
                 if (session.peer == null || !session.peer.isAlive) {
                     this.destroySession(client);
                 }
             }
         }
-        console.info(`client ${client.id} disconnected with code ${evt.code} (total ${Object.keys(this.clients).length})`);
+        console.info(`client ${client.id} disconnected with code ${evt.code} (total ${this.clientCount})`);
     }
 
     /**

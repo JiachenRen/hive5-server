@@ -1,26 +1,33 @@
+import {GameSession} from "./game-session";
+
 type Payload = { [key: string]: any };
 
 /**
  * Outbound message from server to clients.
  */
-abstract class OutboundMessage {
-    public readonly context: string;
-    public readonly payload: Payload;
+class OutboundMessage {
+    static peerDisconnected: OutboundMessage = new OutboundMessage('peerDisconnected');
+    static sessionDestroyed: OutboundMessage = new OutboundMessage('sessionDestroyed');
 
-    protected constructor(context: string, payload: Payload) {
+    readonly context: string;
+    readonly payload?: Payload;
+
+    protected constructor(context: string, payload?: Payload) {
         this.context = context;
         this.payload = payload;
     }
 
-    public stringify(): string {
+    stringify(): string {
         let json: Payload = {
             context: this.context,
         };
-        for (let key in this.payload) {
-            if (!this.payload.hasOwnProperty(key)) {
-                continue;
+        if (this.payload !== undefined) {
+            for (let key in this.payload) {
+                if (!this.payload.hasOwnProperty(key)) {
+                    continue;
+                }
+                json[key] = this.payload[key];
             }
-            json[key] = this.payload[key];
         }
         return JSON.stringify(json);
     }
@@ -34,13 +41,34 @@ class HandshakeMessage extends OutboundMessage {
     }
 }
 
-/**
- * A message containing a new game session created for the client.
- */
-class NewSessionMessage extends OutboundMessage {
+class SessionCreatedMessage extends OutboundMessage {
     constructor(id: String) {
-        super('newSession', {
+        super('sessionCreated', {
             sessionId: id
+        });
+    }
+}
+
+class SessionJoinedMessage extends OutboundMessage {
+    constructor(session: GameSession) {
+        super('sessionJoined', {
+            sessionId: session.id,
+            playAsWhite: session.gameConfig.playAsWhite,
+            includesMosquito: session.gameConfig.includesMosquito,
+            includesLadybug: session.gameConfig.includesLadybug,
+        });
+    }
+}
+
+class ErrorMessage extends OutboundMessage {
+    static sessionNotFound: ErrorMessage = new ErrorMessage('sessionNotFound', 'Session Not Found');
+    static invalidRequest: ErrorMessage = new ErrorMessage('invalidRequest', 'Invalid Request');
+
+    constructor(error: string, title: string, errMsg?: string) {
+        super('error', {
+            error: error,
+            title: title,
+            errMsg: errMsg
         });
     }
 }
@@ -51,7 +79,17 @@ class NewSessionMessage extends OutboundMessage {
 abstract class InboundMessages {
     static newSession: string = 'newSession';
     static destroySession: string = 'destroySession';
+    static joinSession: string = 'joinSession';
+    static leaveSession: string = 'leaveSession';
 }
 
-export {OutboundMessage, HandshakeMessage, InboundMessages, Payload, NewSessionMessage}
+export {
+    OutboundMessage,
+    HandshakeMessage,
+    InboundMessages,
+    Payload,
+    SessionCreatedMessage,
+    SessionJoinedMessage,
+    ErrorMessage,
+}
 
