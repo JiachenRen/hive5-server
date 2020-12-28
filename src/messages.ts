@@ -50,10 +50,11 @@ class SessionCreatedMessage extends OutboundMessage {
 }
 
 class SessionJoinedMessage extends OutboundMessage {
-    constructor(session: GameSession) {
+    constructor(session: GameSession, forPeer = false) {
         super('sessionJoined', {
             sessionId: session.id,
-            playAsWhite: session.gameConfig.playAsWhite,
+            // Invert player role for peer since game config is with respect to the initiator.
+            playAsWhite: forPeer !== session.gameConfig.playAsWhite,
             includesMosquito: session.gameConfig.includesMosquito,
             includesLadybug: session.gameConfig.includesLadybug,
         });
@@ -63,6 +64,7 @@ class SessionJoinedMessage extends OutboundMessage {
 class ErrorMessage extends OutboundMessage {
     static sessionNotFound: ErrorMessage = new ErrorMessage('sessionNotFound', 'Session Not Found');
     static invalidRequest: ErrorMessage = new ErrorMessage('invalidRequest', 'Invalid Request');
+    static sessionFull: ErrorMessage = new ErrorMessage('sessionFull', 'Session Full');
 
     constructor(error: string, title: string, errMsg?: string) {
         super('error', {
@@ -81,6 +83,7 @@ abstract class InboundMessages {
     static destroySession: string = 'destroySession';
     static joinSession: string = 'joinSession';
     static leaveSession: string = 'leaveSession';
+    static p2p: string = 'p2p';
 }
 
 export {

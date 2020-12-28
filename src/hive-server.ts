@@ -88,7 +88,7 @@ class HiveServer {
 
         // Add client to list of clients
         this.clients[client.id] = client;
-        console.info(`client ${client.id} connected (total ${this.clientCount})`);
+        console.info(`client ${client.shortId} connected (total ${this.clientCount})`);
     }
 
     /**
@@ -118,11 +118,40 @@ class HiveServer {
             case InboundMessages.leaveSession:
                 this.leaveSession(client);
                 break;
+            case InboundMessages.p2p:
+                this.p2p(client, message.data as string);
+                break;
             default:
                 client.send(ErrorMessage.invalidRequest);
-                console.error('unknown message context from client: ' + context);
+                console.error(`unknown message context from client ${client.shortId}: ${context}`);
                 break;
         }
+    }
+
+    /**
+     * Replays p2p message from this client to its peer in the same session.
+     */
+    p2p(client: HiveClient, message: string) {
+        if (client.session == null) {
+            client.send(new ErrorMessage('noP2PSession',
+                'No Session',
+                `client ${client.shortId} tries to send p2p message but not in a session`));
+            return;
+        }
+        let peer = client.session.peer;
+        let initiator = client.session.initiator;
+        if (peer == null || client.session.initiator == null) {
+            client.send(new ErrorMessage('noPeer',
+                'No Peer',
+                `client ${client.shortId} tries to send p2p message but session has no peer`));
+            return;
+        }
+        // Relay message to peer
+        if (client === peer) {
+            peer = initiator;
+        }
+        peer.socket.send(message);
+        console.info(`client ${client.shortId} sent p2p message to ${peer.shortId}`)
     }
 
     /**
@@ -139,7 +168,7 @@ class HiveServer {
         delete session.peer;
         delete client.session;
         session.initiator.send(OutboundMessage.peerDisconnected);
-        console.info(`client ${client.id} has left session ${session.id}`);
+        console.info(`client ${client.shortId} has left session ${session.id}`);
     }
 
     /**
@@ -162,17 +191,16 @@ class HiveServer {
             return;
         }
         if (session.peer == null) {
-            console.info(`client ${client.id} joined session ${session.id} as peer`);
+            console.info(`client ${client.shortId} joined session ${session.id} as peer`);
             session.peer = client;
         } else {
-            console.info(`client ${client.id} joined session ${session.id} as initiator`);
+            console.info(`client ${client.shortId} tried to join session ${session.id}, but session is full`);
             // Handles the situation where the initiator loses the connection and wants to reconnect.
-            session.initiator = client;
+            client.send(ErrorMessage.sessionFull);
+            return;
         }
-        let msg = new SessionJoinedMessage(session);
-        console.log(msg.payload);
-        session.peer?.send(msg);
-        session.initiator.send(msg);
+        session.peer?.send(new SessionJoinedMessage(session, true));
+        session.initiator.send(new SessionJoinedMessage(session));
     }
 
     /**
@@ -193,19 +221,18 @@ class HiveServer {
         delete client.session;
         delete session.peer?.session;
         delete this.sessions[session.id];
-        console.info('destroyed session ' + session.id + `(total ${this.sessionCount})`);
+        console.info(`client ${client.shortId} destroyed session ${session.id} (total ${this.sessionCount})`);
     }
 
     /**
      * Creates a new game session with a client as initiator.
      */
     createNewSession(initiator: HiveClient, gameConfig: GameConfig) {
-        console.log(gameConfig);
         let session = new GameSession(initiator, this.genSessionId(), gameConfig);
         this.sessions[session.id] = session;
         initiator.session = session;
         initiator.send(new SessionCreatedMessage(session.id));
-        console.info(`created new session ${session.id} (total ${this.sessionCount})`)
+        console.info(`client ${initiator.shortId} created new session ${session.id} (total ${this.sessionCount})`)
     }
 
 
@@ -232,7 +259,7 @@ class HiveServer {
                 }
             }
         }
-        console.info(`client ${client.id} disconnected with code ${evt.code} (total ${this.clientCount})`);
+        console.info(`client ${client.shortId} disconnected with code ${evt.code} (total ${this.clientCount})`);
     }
 
     /**

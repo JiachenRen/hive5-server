@@ -11,6 +11,10 @@ class HiveClient {
     isAlive: boolean;
     session?: GameSession;
 
+    get shortId(): string {
+        return this.id.substring(0, 6);
+    }
+
     constructor(socket: WebSocket, ip: string, id?: string) {
         this.socket = socket;
         this.isAlive = true;
@@ -31,7 +35,7 @@ class HiveClient {
     }
 
     terminate() {
-        console.info(`client ${this.id} terminated due to inactivity`);
+        console.info(`client ${this.shortId} terminated due to inactivity`);
         this.socket.terminate();
     }
 }
