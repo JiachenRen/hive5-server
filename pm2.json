@@ -1,0 +1,9 @@
+{
+  "apps": [
+    {
+      "name": "hive5_server",
+      "script": "npm",
+      "args" : "start"
+    }
+  ]
+}
