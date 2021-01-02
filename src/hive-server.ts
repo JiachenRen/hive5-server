@@ -164,7 +164,11 @@ class HiveServer {
         if (session == null) {
             return;
         }
-        assert(client === session.peer);
+        if (client !== session.peer) {
+            // If the initiator of the session tries to leave, destroy the session instead.
+            this.destroySession(client);
+            return;
+        }
         delete session.peer;
         delete client.session;
         session.initiator.send(OutboundMessage.peerDisconnected);
