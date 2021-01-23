@@ -1,12 +1,10 @@
 class GameConfig {
     playAsWhite: boolean;
-    includesMosquito: boolean;
-    includesLadybug: boolean;
+    armory: {string: number};
 
-    constructor(playAsWhite: boolean, includesMosquito: boolean, includesLadybug: boolean) {
+    constructor(playAsWhite: boolean, armory: {string: number}) {
         this.playAsWhite = playAsWhite;
-        this.includesMosquito = includesMosquito;
-        this.includesLadybug = includesLadybug;
+        this.armory = armory;
     }
 }
 

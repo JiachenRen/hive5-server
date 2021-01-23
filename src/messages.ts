@@ -51,12 +51,14 @@ class SessionCreatedMessage extends OutboundMessage {
 
 class SessionJoinedMessage extends OutboundMessage {
     constructor(session: GameSession, forPeer = false) {
+
         super('sessionJoined', {
             sessionId: session.id,
             // Invert player role for peer since game config is with respect to the initiator.
-            playAsWhite: forPeer !== session.gameConfig.playAsWhite,
-            includesMosquito: session.gameConfig.includesMosquito,
-            includesLadybug: session.gameConfig.includesLadybug,
+            config: {
+                playAsWhite: forPeer !== session.gameConfig.playAsWhite,
+                armory: session.gameConfig.armory,
+            },
         });
     }
 }

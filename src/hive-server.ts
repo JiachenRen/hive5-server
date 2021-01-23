@@ -11,7 +11,6 @@ import {
 } from "./messages";
 import {GameSession} from "./game-session";
 import {GameConfig} from "./game-config";
-import assert from "assert";
 import Timeout = NodeJS.Timeout;
 
 class HiveServer {
@@ -33,7 +32,7 @@ class HiveServer {
 
     constructor(port: number) {
         this.port = port;
-        this.wss = new WebSocket.Server({port: 8010});
+        this.wss = new WebSocket.Server({port: 8020});
         this.clients = {};
         this.sessions = {};
         this.wss.on('connection', this.onConnection.bind(this));
@@ -106,7 +105,8 @@ class HiveServer {
         const context = data['context'];
         switch (context) {
             case InboundMessages.newSession:
-                let config = new GameConfig(data['playAsWhite'], data['includesMosquito'], data['includesLadybug']);
+                let c = data['config'];
+                let config = new GameConfig(c['playAsWhite'], c['armory']);
                 this.createNewSession(client, config);
                 break;
             case InboundMessages.destroySession:
