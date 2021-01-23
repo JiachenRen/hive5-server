@@ -32,7 +32,7 @@ class HiveServer {
 
     constructor(port: number) {
         this.port = port;
-        this.wss = new WebSocket.Server({port: 8020});
+        this.wss = new WebSocket.Server({port: port});
         this.clients = {};
         this.sessions = {};
         this.wss.on('connection', this.onConnection.bind(this));
